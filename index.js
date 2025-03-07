@@ -13,7 +13,10 @@ initialiseDatabase();
 const PORT = process.env.PORT || 4000;
 
 const corsOptions = {
-  origin: "http://localhost:3000",
+  origin: [
+    "http://localhost:3000",
+    "https://playground-027-frontend-auth.vercel.app",
+  ],
   credentials: true,
   optionSuccessStatus: 200,
 };
