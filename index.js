@@ -5,17 +5,21 @@ const UUID = require("./models/uuid.model.js");
 const { initialiseDatabase } = require("./db/db.connect.js");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
+const axios = require("axios");
+const cookieParser = require("cookie-parser");
 
 const app = express();
 initialiseDatabase();
+const PORT = process.env.PORT || 4000;
 
 const corsOptions = {
-  origin: "*",
+  origin: "http://localhost:3000",
   credentials: true,
   optionSuccessStatus: 200,
 };
 
 app.use(cors(corsOptions));
+app.use(cookieParser());
 
 app.use(express.json());
 
@@ -140,4 +144,84 @@ app.get("/protected", verifyToken, async (req, res) => {
   }
 });
 
-app.listen(3000, () => console.log("Server is running on 3000"));
+app.get("/auth/github", (req, res) => {
+  const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=user,repo,security_events`;
+
+  res.redirect(githubAuthUrl);
+});
+
+app.get("/auth/github/callback", async (req, res) => {
+  const { code } = req.query;
+
+  if (!code) {
+    return res.status(400).send("Authorization code not provided");
+  }
+
+  try {
+    const tokenResponse = await axios.post(
+      "https://github.com/login/oauth/access_token",
+      {
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code,
+      },
+      {
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    );
+    const accessToken = tokenResponse.data.access_token;
+
+    res.cookie("access_token", accessToken);
+    return res.redirect(`${process.env.FRONTEND_URL}/v1/profile/github`);
+  } catch (error) {
+    res.status(500).json(error);
+  }
+});
+
+app.get("/auth/google", (req, res) => {
+  const googleAuthUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=http://localhost:${PORT}/auth/google/callback&response_type=code&scope=profile email`;
+
+  res.redirect(googleAuthUrl);
+});
+
+app.get("/auth/google/callback", async (req, res) => {
+  const { code } = req.query;
+
+  if (!code) {
+    return res.status(400).send("Authorization code not provided");
+  }
+
+  try {
+    const params = new URLSearchParams();
+    params.append("client_id", process.env.GOOGLE_CLIENT_ID);
+    params.append("client_secret", process.env.GOOGLE_CLIENT_SECRET);
+    params.append("code", code);
+    params.append("grant_type", "authorization_code");
+    params.append("redirect_uri", `http://localhost:4000/auth/google/callback`);
+
+    const tokenResponse = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      params.toString(),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }
+    );
+
+    const accessToken = tokenResponse.data.access_token;
+
+    res.cookie("access_token", accessToken);
+    return res.redirect(`${process.env.FRONTEND_URL}/v1/profile/google`);
+  } catch (error) {
+    console.error("Google OAuth error:", error.response?.data || error.message);
+    res.status(500).json({
+      error: "Failed to authenticate with Google",
+      details: error.response?.data || error.message,
+    });
+  }
+});
+
+app.listen(4000, () => console.log("Server is running on 4000"));
